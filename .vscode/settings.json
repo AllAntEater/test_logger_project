@@ -1,0 +1,17 @@
+{
+  "C_Cpp.intelliSenseEngine": "Tag Parser",
+  "files.associations": {
+    "optional": "c",
+    "istream": "c",
+    "ostream": "c",
+    "ratio": "c",
+    "system_error": "c",
+    "array": "c",
+    "functional": "c",
+    "tuple": "c",
+    "type_traits": "c",
+    "utility": "c",
+    "*.inc": "c"
+  },
+  "idf.adapterTargetName": "esp32"
+}
