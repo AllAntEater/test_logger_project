@@ -6,7 +6,9 @@
 #include "project_defs.h"
 #include "sdkconfig.h"
 
+#include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 
 #if(portNUM_PROCESSORS > 1)
@@ -31,20 +33,17 @@ counter_type_t xLoggerQueueStorage[LOGGER_QUEUE_SIZE];
 // Period for creating Log item in ms
 const uint32_t ulLogTimeout = 5000;
 
-const static char* tag_log_func = "Log: ";
-// const static char* tag_log_task = "Log task: ";
+const static char* tag_log_func = "Log";
 
 void log_function(esp_log_level_t xLogLevel, const char* pcLogItem);
 void counter_task(void* pvArg);
 void logger_task(void* pvArg);
 
+
 void
 log_function(esp_log_level_t xLogLevel, const char* pcLogItem)
 {
-	if(NULL == pcLogItem)
-	{
-		return;
-	}
+	assert(NULL != pcLogItem);
 
 	switch(xLogLevel)
 	{
@@ -72,26 +71,27 @@ log_function(esp_log_level_t xLogLevel, const char* pcLogItem)
 void
 logger_task(void* pvArg)
 {
+	assert(NULL != pvArg);
+
+	log_callback_func_t log_callback = (log_callback_func_t)pvArg;
 	counter_type_t xQueueItem = {.ulValue = 0UL};
-	uint8_t ucLogBuffer[20];
+	TickType_t xLastTickCount = 0UL;
+	TickType_t xCurrentTickCount = 0UL;
 
-	log_callback_func_t log_callback = NULL;
-
-	if(NULL != pvArg)
-	{
-		log_callback = (log_callback_func_t)pvArg;
-	}
-	else
-	{
-		// ESP_LOGE(tag_log_task, "log function is not provided!");
-		vTaskDelete(NULL);
-	}
+	uint8_t ucLogBuffer[128];
+	memset(&ucLogBuffer[0], 0x00, sizeof(ucLogBuffer));
 
 	for(;;)
 	{
 		if(xQueueReceive(xLoggerQueueHandler, &xQueueItem, portMAX_DELAY))
 		{
-			sprintf((char*)&ucLogBuffer[0], "%lu", (unsigned long)xQueueItem.ulValue);
+			xCurrentTickCount = xTaskGetTickCount();
+			sprintf((char*)&ucLogBuffer[0],
+			        "Counter: %lu, Ticks diff.: %lu",
+			        (unsigned long)xQueueItem.ulValue,
+			        (unsigned long)(xCurrentTickCount - xLastTickCount));
+			xLastTickCount = xCurrentTickCount;
+
 			log_callback(ESP_LOG_INFO, (const char*)&ucLogBuffer[0]);
 		}
 	}
@@ -102,10 +102,14 @@ logger_task(void* pvArg)
 void
 counter_task(void* pvArg)
 {
+	(void)pvArg;
+
 	counter_type_t xQueueItem = {.ulValue = 0UL};
 	BaseType_t xRes = pdFALSE;
 
-	(void)pvArg;
+	// Variables for compensation delay drift, caused by code execution
+	TickType_t xLogTicksTimeout = pdMS_TO_TICKS(ulLogTimeout);
+	TickType_t xLastIncrementTime = xTaskGetTickCount();
 
 	for(;;)
 	{
@@ -113,10 +117,11 @@ counter_task(void* pvArg)
 
 		if(pdFALSE == xRes)
 		{
-			// Something went wrong with logger task. Do something!
+			// Something went wrong with logger task.
+			assert(false);
 		}
 
-		vTaskDelay(pdMS_TO_TICKS(ulLogTimeout));
+		vTaskDelayUntil(&xLastIncrementTime, xLogTicksTimeout);
 		++xQueueItem.ulValue;
 	}
 
@@ -128,6 +133,7 @@ app_main(void)
 {
 	xLoggerQueueHandler = xQueueCreateStatic(
 	    LOGGER_QUEUE_SIZE, sizeof(counter_type_t), (uint8_t*)&xLoggerQueueStorage[0], &xLoggerQueueControlBlock);
+	assert(NULL != xLoggerQueueHandler);
 
 	xLoggerTaskHandle = xTaskCreateStaticPinnedToCore((TaskFunction_t)logger_task,
 	                                                  "logger_task",
@@ -137,6 +143,7 @@ app_main(void)
 	                                                  xLoggerTaskStack,
 	                                                  &xLoggerTaskControlBlock,
 	                                                  USER_TASK_PINNED_CODE);
+	assert(NULL != xLoggerTaskHandle);
 
 	xCounterTaskHandle = xTaskCreateStaticPinnedToCore((TaskFunction_t)counter_task,
 	                                                   "counter_task",
@@ -146,6 +153,7 @@ app_main(void)
 	                                                   xCounterTaskStack,
 	                                                   &xCounterTaskControlBlock,
 	                                                   USER_TASK_PINNED_CODE);
+	assert(NULL != xCounterTaskHandle);
 
 	vTaskDelete(NULL);
 }
